@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.mirpau.plotcue",
+      "sha256_cert_fingerprints": [
+        "0A:BE:A9:38:79:C0:E7:5F:90:C7:5F:E0:E5:12:BB:0D:17:01:99:40:0F:6B:B5:72:02:F4:0D:C3:D0:02:7F:9B"
+      ]
+    }
+  }
+]
