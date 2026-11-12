@@ -165,16 +165,17 @@ function createWebAnalytics(win, measurementId = GA4_ID, now = () => Date.now())
   let activeDialog = null;
   let returnFocus = null;
   let lastLocation = '';
-  const isPrivacy = () => analyticsPath(location.pathname) === '/privacy';
+  let scheduled = false;
+  const rowId = 'plotcue-analytics-settings-row';
   function palette() {
     try {
-      if (localStorage.getItem('plotcue.appearance.v1') === 'dark') return ['#181818', '#f1f1f1', '#bababa', '#909090', '#b1b1b1'];
+      if (localStorage.getItem('plotcue.appearance.v1') === 'dark') return ['#181818', '#f1f1f1', '#bababa', '#909090', '#b1b1b1', '#0e0e0e'];
     } catch { /* Use the existing default appearance. */ }
-    return ['#2B0D16', '#F4F1EA', '#C0B6B8', '#B08A3E', '#D0A85A'];
+    return ['#2B0D16', '#F4F1EA', '#C0B6B8', '#B08A3E', '#D0A85A', '#06101C'];
   }
   function styleText() {
-    const [surface, text, muted, outline, accent] = palette();
-    return `:host{font-family:Arial,sans-serif;color:${text}}dialog{box-sizing:border-box;background:${surface};color:${text};border:1px solid ${outline};border-radius:22px;padding:22px;width:calc(100% - 32px);max-width:560px;max-height:88dvh;overflow:auto}dialog::backdrop{background:rgba(0,0,0,.72)}h2{margin:0 0 12px;font-size:22px;font-weight:900}p{color:${muted};font-size:14px;line-height:1.5;margin:0 0 12px}button,a{box-sizing:border-box;display:flex;align-items:center;justify-content:center;min-height:48px;padding:10px 14px;border:1px solid ${outline};border-radius:14px;color:${accent};background:${surface};font:700 14px Arial,sans-serif;text-align:center;text-decoration:none;cursor:pointer}button:focus-visible,a:focus-visible{outline:2px solid ${accent};outline-offset:3px}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}.actions button{flex:1 1 180px}.preferences{margin:12px 0}.preferences button{width:100%}`;
+    const [surface, text, muted, outline, accent, background] = palette();
+    return `:host{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:${text}}dialog{box-sizing:border-box;background:${background};color:${text};border:0;border-radius:22px;padding:24px;width:calc(100% - 32px);max-width:560px;max-height:90dvh;overflow:auto}dialog::backdrop{background:rgba(0,0,0,.72)}h2{margin:12px 0 10px;font-size:27px;line-height:1.2;font-weight:900}p{font-size:14px;line-height:1.6;margin:14px 0}.intro,.detail{color:${muted}}.intro{margin:0 0 20px}.panel{background:${surface};border:1px solid ${outline};border-radius:22px;padding:20px}.state{display:flex;align-items:center;justify-content:space-between;gap:20px;padding-bottom:16px;border-bottom:1px solid ${outline};font-size:16px;font-weight:800}.state strong{color:${accent};font-size:18px}.actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px}.action,.preferences{box-sizing:border-box;min-height:52px;padding:12px 14px;border:1px solid ${outline};border-radius:14px;color:${accent};background:${surface};font:900 13px Inter,system-ui,sans-serif;text-align:center;cursor:pointer}.actions .action{flex:1 1 170px}.back{display:inline-flex;align-items:center;min-height:48px;padding:0;border:0;background:transparent;color:${accent};font:800 14px Inter,system-ui,sans-serif;cursor:pointer}.policy{display:inline-block;padding-top:18px;color:${accent};font-size:13px;text-decoration:underline}.footer{margin:18px 0 0;color:${muted};font-size:12px;line-height:1.6}.preferences{display:block;width:100%;margin-top:14px}button:focus-visible,a:focus-visible{outline:2px solid ${accent};outline-offset:3px}@media(max-width:400px){dialog{padding:20px 16px}.panel{padding:18px}}`;
   }
   function closeDialog() {
     if (!activeDialog) return;
@@ -182,32 +183,93 @@ function createWebAnalytics(win, measurementId = GA4_ID, now = () => Date.now())
     activeDialog.close(); host.remove(); activeDialog = null;
     if (returnFocus instanceof HTMLElement && returnFocus.isConnected) returnFocus.focus();
   }
-  function choose(value) { client.setChoice(value); closeDialog(); }
+  function choose(value) { client.setChoice(value); updateRowState(); closeDialog(); }
   function showPreferences() {
     if (activeDialog || !analyticsPath(location.pathname)) return;
     returnFocus = document.activeElement;
-    const host = document.createElement('div');
-    host.id = 'plotcue-analytics-dialog';
+    const host = document.createElement('div'); host.id = 'plotcue-analytics-dialog';
     const root = host.attachShadow({mode:'open'});
-    const current = client.choice();
-    root.innerHTML = `<style>${styleText()}</style><dialog aria-labelledby="analytics-heading" aria-describedby="analytics-summary"><h2 id="analytics-heading">Optional website analytics</h2><p id="analytics-summary">Allow Google Analytics cookies to help us understand visits, page use and clicks to the app stores? PlotCue works fully if you decline.</p><p>If you accept, Google processes a browser identifier, device/browser information, approximate location and usage events. We do not send your PlotCue account ID, name, email, password, watched titles or search text. Advertising features are disabled.</p><p>Your choice is saved on this browser for up to 180 days. You can change it at any time in Privacy Policy → Analytics preferences. Declining stops future analytics and removes PlotCue's analytics cookies; it does not erase data already processed by Google. For privacy requests, contact contact@plotcue.app.</p>${current ? `<p>Current choice: ${current === 'accepted' ? 'allowed' : 'declined'}.</p>` : ''}<a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">GOOGLE PRIVACY POLICY</a><div class="actions"><button type="button" data-choice="declined">DECLINE</button><button type="button" data-choice="accepted">ACCEPT ANALYTICS</button></div></dialog>`;
+    const enabled = client.choice() === 'accepted';
+    const explanation = enabled
+      ? 'Analytics is enabled. This browser can send website usage events to Google Analytics to help improve PlotCue.'
+      : 'Analytics is disabled. Website usage events are not sent to Google Analytics from this browser.';
+    root.innerHTML = `<style>${styleText()}</style><dialog aria-labelledby="analytics-heading" aria-describedby="analytics-summary"><button type="button" class="back">‹ Back</button><h2 id="analytics-heading">Analytics preferences</h2><p id="analytics-summary" class="intro">Your choice applies only to this browser. PlotCue works fully if you decline.</p><div class="panel"><div class="state"><span>Website analytics</span><strong>${enabled ? 'On' : 'Off'}</strong></div><p>${explanation}</p><p class="detail">${enabled ? '' : 'If enabled, '}Google processes a browser identifier, device/browser information, approximate location, page use and clicks to the app stores.</p><p class="detail">We do not send your PlotCue account ID, name, email, password, watched titles or search text. Advertising features are disabled.</p><div class="actions"><button type="button" class="action" data-choice="declined">DECLINE</button><button type="button" class="action" data-choice="accepted">ACCEPT ANALYTICS</button></div><a class="policy" href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google Privacy Policy</a></div><p class="footer">You can change your choice here at any time. It is saved for up to 180 days. Declining removes analytics cookies and stops future analytics; it does not erase data already processed by Google. Privacy requests: contact@plotcue.app.</p></dialog>`;
     document.body.appendChild(host);
     activeDialog = root.querySelector('dialog');
-    activeDialog.addEventListener('cancel', event => { event.preventDefault(); choose('declined'); });
+    activeDialog.addEventListener('cancel', event => { event.preventDefault(); closeDialog(); });
+    root.querySelector('.back').addEventListener('click', closeDialog);
     root.querySelectorAll('[data-choice]').forEach(button => button.addEventListener('click', () => choose(button.dataset.choice)));
     activeDialog.showModal();
   }
-  function addPreferences() {
-    if (!isPrivacy() || document.getElementById('plotcue-analytics-preferences')) return;
-    const staticSection = document.getElementById('optional-web-analytics');
-    const title = staticSection || [...document.querySelectorAll('h1,h2,div')].find(node => node.childElementCount === 0 && node.textContent.trim() === 'Privacy Policy');
-    if (!title) return;
-    const host = document.createElement('div');
-    host.id = 'plotcue-analytics-preferences';
-    const root = host.attachShadow({mode:'open'});
-    root.innerHTML = `<style>${styleText()}</style><div class="preferences"><button type="button">ANALYTICS PREFERENCES</button></div>`;
-    root.querySelector('button').addEventListener('click', showPreferences);
-    if (staticSection) staticSection.appendChild(host); else title.after(host);
+  function updateRowState() {
+    const row = document.getElementById(rowId);
+    if (!row) return;
+    const value = client.choice() === 'accepted' ? 'On' : 'Off';
+    const label = row.querySelector('[data-analytics-state]');
+    if (label && label.textContent !== value) label.textContent = value;
+    const name = `Analytics preferences, ${value}`;
+    if (row.getAttribute('aria-label') !== name) row.setAttribute('aria-label', name);
+  }
+  function addSettingsRow() {
+    const path = analyticsPath(location.pathname);
+    if (path !== '/settings' && path !== '/privacy') return;
+    const old = document.getElementById('plotcue-analytics-preferences');
+    // Never put controls inside a Privacy Policy navigation row.
+    if (old && !old.closest('#optional-web-analytics')) old.remove();
+    const labels = [...document.querySelectorAll('div,span')].filter(node => node.childElementCount === 0 && node.textContent.trim() === 'Privacy Policy');
+    const label = labels.find(node => {
+      const row = node.closest('[tabindex="0"],button,[role="button"]');
+      return row && row.parentElement?.textContent.includes('Terms of Service');
+    });
+    if (!label) return;
+    const base = label.closest('[tabindex="0"],button,[role="button"]');
+    const existing = document.getElementById(rowId);
+    const divider = base.nextElementSibling;
+    if (!divider || divider.textContent.trim()) return;
+    if (existing?.parentElement === base.parentElement) {
+      if (existing.className !== base.className) existing.className = base.className;
+      const currentTitle = existing.firstElementChild;
+      const currentTail = existing.lastElementChild;
+      if (currentTitle.className !== label.className) currentTitle.className = label.className;
+      if (currentTail.className !== base.lastElementChild.className) currentTail.className = base.lastElementChild.className;
+      const separator = document.getElementById(rowId + '-divider');
+      if (separator && separator.className !== divider.className) separator.className = divider.className;
+      updateRowState(); return;
+    }
+    existing?.remove(); document.getElementById(rowId + '-divider')?.remove();
+    const arrow = base.lastElementChild;
+    if (arrow === label || arrow.textContent.trim() !== '›') return;
+    const row = base.cloneNode(false);
+    row.id = rowId; row.setAttribute('role','button'); row.setAttribute('tabindex','0');
+    const title = label.cloneNode(true); title.textContent = 'Analytics preferences';
+    const tail = arrow.cloneNode(false);
+    Object.assign(tail.style,{display:'flex',alignItems:'center',gap:'10px'});
+    const state = document.createElement('span'); state.dataset.analyticsState='';
+    Object.assign(state.style,{fontSize:'14px',fontWeight:'800'});
+    const chevron = document.createElement('span'); chevron.textContent='›'; chevron.setAttribute('aria-hidden','true');
+    tail.append(state,chevron); row.append(title,tail);
+    row.addEventListener('click', event => { event.stopPropagation(); showPreferences(); });
+    row.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); showPreferences(); } });
+    const separator = divider.cloneNode(false); separator.id=rowId+'-divider'; separator.setAttribute('aria-hidden','true');
+    base.after(separator,row);
+    updateRowState();
+  }
+  function addStaticPreferences() {
+    const section = document.getElementById('optional-web-analytics');
+    if (!section || section.querySelector('#plotcue-analytics-preferences')) return;
+    const host = document.createElement('div'); host.id='plotcue-analytics-preferences';
+    const root=host.attachShadow({mode:'open'});
+    root.innerHTML=`<style>${styleText()}</style><button type="button" class="preferences">ANALYTICS PREFERENCES</button>`;
+    root.querySelector('button').addEventListener('click',showPreferences);
+    section.appendChild(host);
+  }
+  function reconcile() { addSettingsRow(); addStaticPreferences(); }
+  function scheduleReconcile() {
+    if (scheduled) return;
+    const path=analyticsPath(location.pathname);
+    if (path !== '/settings' && path !== '/privacy') return;
+    scheduled=true;
+    requestAnimationFrame(() => { scheduled=false; reconcile(); });
   }
   function locationChanged() {
     const next = location.pathname + location.search;
@@ -215,7 +277,7 @@ function createWebAnalytics(win, measurementId = GA4_ID, now = () => Date.now())
     lastLocation = next;
     client.page();
     if (!analyticsPath(location.pathname)) { closeDialog(); return; }
-    addPreferences();
+    reconcile(); scheduleReconcile();
     if (client.choice() === null || new URLSearchParams(location.search).get('analytics') === 'preferences') showPreferences();
   }
   for (const name of ['pushState', 'replaceState']) {
@@ -228,8 +290,9 @@ function createWebAnalytics(win, measurementId = GA4_ID, now = () => Date.now())
   }
   window.addEventListener('popstate', locationChanged);
   window.addEventListener('storage', event => {
+    if (event.key === 'plotcue.appearance.v1') { scheduleReconcile(); return; }
     if (event.key !== ANALYTICS_CHOICE_KEY && event.key !== null) return;
-    client.page(); closeDialog();
+    client.page(); closeDialog(); updateRowState();
     if (client.choice() === null) showPreferences();
   });
   document.addEventListener('click', event => {
@@ -242,12 +305,7 @@ function createWebAnalytics(win, measurementId = GA4_ID, now = () => Date.now())
     }
     client.storeClick(link.href);
   }, true);
-  let pending = false;
-  new MutationObserver(() => {
-    if (!isPrivacy() || pending) return;
-    pending = true;
-    queueMicrotask(() => { pending = false; addPreferences(); });
-  }).observe(document.body, {childList:true, subtree:true});
+  new MutationObserver(scheduleReconcile).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});
   locationChanged();
 })();
 
