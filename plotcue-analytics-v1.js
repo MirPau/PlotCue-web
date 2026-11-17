@@ -1,10 +1,9 @@
-/* PlotCue opt-in web analytics. No native/app functionality changes. */
-(() => {
+/* PlotCue opt-in web analytics. */
+(()=>{
 "use strict";
 // Web-only optional measurement. Never import account, catalog or auth data here.
 const GA4_ID = 'G-XYXQED9Y0E';
 const ANALYTICS_CHOICE_KEY = 'plotcue.webAnalytics.v1';
-const CHOICE_LIFETIME_MS = 180 * 24 * 60 * 60 * 1000;
 const pages = new Set(['/', '/landing', '/login', '/register', '/shows', '/movies', '/show', '/movie', '/upcoming', '/calendar', '/settings', '/about', '/contact', '/privacy', '/terms', '/data-rights', '/history', '/contributions', '/rate']);
 const sources = new Set(['facebook', 'instagram', 'tiktok', 'google', 'newsletter']);
 const mediums = new Set(['social', 'organic', 'email', 'referral', 'cpc']);
@@ -30,7 +29,7 @@ function parseAnalyticsChoice(raw, now) {
     try {
         const record = JSON.parse(raw || 'null');
         return record?.version === 1 && ['accepted', 'declined'].includes(record.choice) &&
-            Number.isFinite(record.at) && record.at <= now && now - record.at < CHOICE_LIFETIME_MS ? record.choice : null;
+            Number.isFinite(record.at) && record.at >= 0 && record.at <= now ? record.choice : null;
     }
     catch {
         return null;
@@ -58,12 +57,12 @@ function createWebAnalytics(win, measurementId = GA4_ID, now = () => Date.now())
     let lastPage = '';
     function choice() {
         if (volatileChoice)
-            return memoryChoice && now() - memoryChoice.at < CHOICE_LIFETIME_MS ? memoryChoice.choice : null;
+            return memoryChoice?.choice ?? null;
         try {
             return parseAnalyticsChoice(win.localStorage.getItem(ANALYTICS_CHOICE_KEY), now());
         }
         catch {
-            return memoryChoice && now() - memoryChoice.at < CHOICE_LIFETIME_MS ? memoryChoice.choice : null;
+            return memoryChoice?.choice ?? null;
         }
     }
     function supported() { return /^G-[A-Z0-9]+$/.test(measurementId) && ['plotcue.app', 'www.plotcue.app'].includes(win.location.hostname) && win.location.protocol === 'https:'; }
@@ -189,15 +188,16 @@ function createWebAnalytics(win, measurementId = GA4_ID, now = () => Date.now())
     returnFocus = document.activeElement;
     const host = document.createElement('div'); host.id = 'plotcue-analytics-dialog';
     const root = host.attachShadow({mode:'open'});
+    const firstChoice = client.choice() === null;
     const enabled = client.choice() === 'accepted';
     const explanation = enabled
       ? 'Analytics is enabled. This browser can send website usage events to Google Analytics to help improve PlotCue.'
       : 'Analytics is disabled. Website usage events are not sent to Google Analytics from this browser.';
-    root.innerHTML = `<style>${styleText()}</style><dialog aria-labelledby="analytics-heading" aria-describedby="analytics-summary"><button type="button" class="back">‹ Back</button><h2 id="analytics-heading">Analytics preferences</h2><p id="analytics-summary" class="intro">Your choice applies only to this browser. PlotCue works fully if you decline.</p><div class="panel"><div class="state"><span>Website analytics</span><strong>${enabled ? 'On' : 'Off'}</strong></div><p>${explanation}</p><p class="detail">${enabled ? '' : 'If enabled, '}Google processes a browser identifier, device/browser information, approximate location, page use and clicks to the app stores.</p><p class="detail">We do not send your PlotCue account ID, name, email, password, watched titles or search text. Advertising features are disabled.</p><div class="actions"><button type="button" class="action" data-choice="declined">DECLINE</button><button type="button" class="action" data-choice="accepted">ACCEPT ANALYTICS</button></div><a class="policy" href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google Privacy Policy</a></div><p class="footer">You can change your choice here at any time. It is saved for up to 180 days. Declining removes analytics cookies and stops future analytics; it does not erase data already processed by Google. Privacy requests: contact@plotcue.app.</p></dialog>`;
+    root.innerHTML = `<style>${styleText()}</style><dialog aria-labelledby="analytics-heading" aria-describedby="analytics-summary">${firstChoice ? '' : '<button type="button" class="back">‹ Back</button>'}<h2 id="analytics-heading">Analytics preferences</h2><p id="analytics-summary" class="intro">Your choice applies only to this browser. PlotCue works fully if you decline.</p><div class="panel"><div class="state"><span>Website analytics</span><strong>${enabled ? 'On' : 'Off'}</strong></div><p>${explanation}</p><p class="detail">${enabled ? '' : 'If enabled, '}Google processes a browser identifier, device/browser information, approximate location, page use and clicks to the app stores.</p><p class="detail">We do not send your PlotCue account ID, name, email, password, watched titles or search text. Advertising features are disabled.</p><div class="actions"><button type="button" class="action" data-choice="declined">DECLINE</button><button type="button" class="action" data-choice="accepted">ACCEPT ANALYTICS</button></div><a class="policy" href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google Privacy Policy</a></div><p class="footer">You can change your choice here at any time. Your choice is saved in this browser until you change it in Settings or clear browser data. If storage is blocked, it lasts only for this page session. Declining removes analytics cookies and stops future analytics; it does not erase data already processed by Google. Privacy requests: contact@plotcue.app.</p></dialog>`;
     document.body.appendChild(host);
     activeDialog = root.querySelector('dialog');
-    activeDialog.addEventListener('cancel', event => { event.preventDefault(); closeDialog(); });
-    root.querySelector('.back').addEventListener('click', closeDialog);
+    activeDialog.addEventListener('cancel', event => { event.preventDefault(); if (!firstChoice) closeDialog(); });
+    root.querySelector('.back')?.addEventListener('click', closeDialog);
     root.querySelectorAll('[data-choice]').forEach(button => button.addEventListener('click', () => choose(button.dataset.choice)));
     activeDialog.showModal();
   }
